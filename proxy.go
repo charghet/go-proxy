@@ -177,8 +177,8 @@ type Flag struct {
 
 func getArgs() *Flag {
 	var f Flag
-	flag.StringVar(&f.bh, "bh", "0.0.0.0:10171", "bind host. default 0.0.0.0:10171")
-	flag.StringVar(&f.ph, "ph", "localhost:20171", "proxy host. defalut localhost:20171")
+	flag.StringVar(&f.bh, "bh", "0.0.0.0:10171", "bind host.")
+	flag.StringVar(&f.ph, "ph", "localhost:20171", "proxy host.")
 	flag.BoolVar(&f.v, "v", false, "print version.")
 	flag.BoolVar(&f.h, "h", false, "show help.")
 
