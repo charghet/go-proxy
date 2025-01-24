@@ -21,14 +21,14 @@ func serverRead(sc chan net.Conn, sr chan []byte) {
 		// fmt.Println("server read end:", serverConn.LocalAddr(), string(b), "========================")
 		if err != nil {
 			// fmt.Println("server read error:", serverConn.LocalAddr(), err)
-			// serverConn = <-sc
-			// continue
 			if i == 1 {
 				sr <- make([]byte, 0)
 			} else {
 				sr <- nil
 			}
-			return
+			i = 0
+			serverConn = <-sc
+			continue
 		}
 		sr <- b[:n]
 		i++
@@ -63,8 +63,8 @@ func handleConnection(clientConn net.Conn, remoteAddr string) {
 		return
 	}
 
-	cr := make(chan []byte, 10)
-	cw := make(chan []byte, 10)
+	cr := make(chan []byte, 5)
+	cw := make(chan []byte, 5)
 	go func() {
 		for {
 			b := make([]byte, 4096)
@@ -97,9 +97,12 @@ func handleConnection(clientConn net.Conn, remoteAddr string) {
 		}
 	}()
 
-	sc := make(chan net.Conn, 10)
-	sr := make(chan []byte, 10)
-	sw := make(chan []byte, 10)
+	sc := make(chan net.Conn, 5)
+	sr := make(chan []byte, 5)
+	sw := make(chan []byte)
+
+	go serverWrite(serverConn, sw)
+	go serverRead(sc, sr)
 
 	sc <- serverConn
 	var buff = make([][]byte, 2)
@@ -111,7 +114,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string) {
 			if i < 2 {
 				buff[i] = b
 				if i == 0 {
-					fmt.Println(time.Now(), ":\n", string(b), "\n=========================================")
+					fmt.Println(time.Now(), clientConn.RemoteAddr(), ":\n", string(b), "\n=========================================")
 				}
 				// fmt.Println("buff:", string(buff), "\n===============")
 			}
@@ -123,27 +126,22 @@ func handleConnection(clientConn net.Conn, remoteAddr string) {
 		}
 	}()
 
-	go serverWrite(serverConn, sw)
-	go serverRead(sc, sr)
-
 	write_buff := false
 	i := 0
 	for {
 		b := <-sr
 		// fmt.Println("server read:", string(b))
-		if b != nil && len(b) == 0 {
-			// fmt.Println("write buff=====================:\n", string(buff), "\n===================")
+		if i == 1 && b != nil && len(b) == 0 { // TODO i == 0 情况
+			fmt.Println(time.Now(), clientConn.RemoteAddr(), "=====tlserror=====")
+			sw <- nil
 			serverConn.Close()
 			serverConn, err = net.Dial("tcp", remoteAddr)
 			if err != nil {
 				fmt.Printf("连接到远程服务器失败: %v\n", err)
 				return
 			}
-			sc <- serverConn
-			go serverRead(sc, sr)
-			sw <- nil //TODO 安全
-			fmt.Println("tlserror===================")
 			// time.Sleep(3 * time.Second)
+			sc <- serverConn
 			go serverWrite(serverConn, sw)
 			sw <- buff[0]
 			sw <- buff[1]
