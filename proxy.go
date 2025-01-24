@@ -1,10 +1,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
+	"os"
 	"time"
 )
+
+var version = "0.2.0"
 
 func serverRead(sc chan net.Conn, sr chan []byte) {
 	serverConn := <-sc
@@ -164,9 +168,47 @@ func handleConnection(clientConn net.Conn, remoteAddr string) {
 
 }
 
+type Flag struct {
+	bh string // bind host. like localhost:10170
+	ph string // proxy host. like localhost:20170
+	v  bool   // version
+	h  bool   // help
+}
+
+func getArgs() *Flag {
+	var f Flag
+	flag.StringVar(&f.bh, "bh", "0.0.0.0:10171", "bind host. default 0.0.0.0:10171")
+	flag.StringVar(&f.ph, "ph", "localhost:20171", "proxy host. defalut localhost:20171")
+	flag.BoolVar(&f.v, "v", false, "print version.")
+	flag.BoolVar(&f.h, "h", false, "show help.")
+
+	flag.Usage = func() {
+		fmt.Println("forword http proxy server and retry request to improved stability")
+		fmt.Fprintf(os.Stdout, "Usage:  %s [options] [path]\n", os.Args[0])
+		fmt.Printf("Version: %s\n", version)
+		fmt.Println("Options:")
+		flag.PrintDefaults()
+	}
+
+	flag.Parse()
+
+	if f.v {
+		fmt.Println("version:", version)
+		os.Exit(0)
+	}
+
+	if f.h {
+		flag.Usage()
+		os.Exit(0)
+	}
+
+	return &f
+}
+
 func main() {
-	localAddr := "0.0.0.0:10171"    // 本地监听地址和端口
-	remoteAddr := "127.0.0.1:20171" // 目标地址和端口
+	f := getArgs()
+	localAddr := f.bh
+	remoteAddr := f.ph
 
 	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {
@@ -175,7 +217,7 @@ func main() {
 	}
 	defer listener.Close()
 
-	fmt.Printf("正在监听 %s，转发到 %s\n", localAddr, remoteAddr)
+	fmt.Printf("listening %s and forword to %s\n", localAddr, remoteAddr)
 
 	for {
 		clientConn, err := listener.Accept()
