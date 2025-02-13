@@ -1,0 +1,43 @@
+* STATE: INIT => CONNECT handle 0x8000a3b88; line 1789 (connection #-5000)
+* Added connection 0. The cache now contains 1 members
+* family0 == v4, family1 == v6
+*   Trying 127.0.0.1:20171...
+* STATE: CONNECT => CONNECTING handle 0x8000a3b88; line 1850 (connection #0)
+* Connected to localhost (127.0.0.1) port 20171 (#0)
+* STATE: CONNECTING => PROTOCONNECT handle 0x8000a3b88; line 1980 (connection #0)
+* STATE: PROTOCONNECT => DO handle 0x8000a3b88; line 2003 (connection #0)
+> GET http://google.com/ HTTP/1.1
+> Host: google.com
+> User-Agent: curl/7.80.0
+> Accept: */*
+> Proxy-Connection: Keep-Alive
+>
+* STATE: DO => DID handle 0x8000a3b88; line 2099 (connection #0)
+* STATE: DID => PERFORMING handle 0x8000a3b88; line 2218 (connection #0)
+* Mark bundle as not supporting multiuse
+* HTTP 1.1 or later with persistent connection
+< HTTP/1.1 301 Moved Permanently
+< Content-Length: 219
+< Cache-Control: public, max-age=2592000
+< Connection: keep-alive
+< Content-Security-Policy-Report-Only: object-src 'none';base-uri 'self';script-src 'nonce-p6-KgSby2U9Ql3_dIbAC6Q' 'strict-dynamic' 'report-sample' 'unsafe-eval' 'unsafe-inline' https: http:;report-uri https://csp.withgoogle.com/csp/gws/other-hp
+< Content-Type: text/html; charset=UTF-8
+< Date: Fri, 07 Feb 2025 01:31:42 GMT
+< Expires: Sun, 09 Mar 2025 01:31:42 GMT
+< Keep-Alive: timeout=60
+< Location: http://www.google.com/
+< Proxy-Connection: keep-alive
+< Server: gws
+< X-Frame-Options: SAMEORIGIN
+< X-Xss-Protection: 0
+<
+<HTML><HEAD><meta http-equiv="content-type" content="text/html;charset=utf-8">
+<TITLE>301 Moved</TITLE></HEAD><BODY>
+<H1>301 Moved</H1>
+The document has moved
+<A HREF="http://www.google.com/">here</A>.
+</BODY></HTML>
+* STATE: PERFORMING => DONE handle 0x8000a3b88; line 2417 (connection #0)
+* multi_done
+* Connection #0 to host localhost left intact
+* Expire cleared (transfer 0x8000a3b88)

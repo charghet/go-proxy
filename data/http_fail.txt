@@ -1,0 +1,29 @@
+* STATE: INIT => CONNECT handle 0x8000a3b88; line 1789 (connection #-5000)
+* Added connection 0. The cache now contains 1 members
+* family0 == v4, family1 == v6
+*   Trying 127.0.0.1:20171...
+* STATE: CONNECT => CONNECTING handle 0x8000a3b88; line 1850 (connection #0)
+* Connected to localhost (127.0.0.1) port 20171 (#0)
+* STATE: CONNECTING => PROTOCONNECT handle 0x8000a3b88; line 1980 (connection #0)
+* STATE: PROTOCONNECT => DO handle 0x8000a3b88; line 2003 (connection #0)
+> GET http://google.com/ HTTP/1.1
+> Host: google.com
+> User-Agent: curl/7.80.0
+> Accept: */*
+> Proxy-Connection: Keep-Alive
+>
+* STATE: DO => DID handle 0x8000a3b88; line 2099 (connection #0)
+* STATE: DID => PERFORMING handle 0x8000a3b88; line 2218 (connection #0)
+* Mark bundle as not supporting multiuse
+* HTTP 1.1 or later with persistent connection
+< HTTP/1.1 503 Service Unavailable
+< Connection: close
+* HTTP/1.1 proxy connection set close!
+< Proxy-Connection: close
+< Content-Length: 0
+<
+* STATE: PERFORMING => DONE handle 0x8000a3b88; line 2417 (connection #0)
+* multi_done
+* The cache now contains 0 members
+* Closing connection 0
+* Expire cleared (transfer 0x8000a3b88)
