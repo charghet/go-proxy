@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"runtime/debug"
+	"strings"
+	"time"
 )
 
 var version = "0.3.0"
@@ -27,6 +31,9 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	}
 
 	down := make(chan interface{}, 5)
+	defer func() {
+		down <- nil
+	}()
 	cr := make(chan []byte, 5)
 	cw := make(chan []byte, 5)
 
@@ -78,11 +85,19 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	go serverWrite(serverConn, sw, down, serverDown)
 
 	// client read to server write
+	var cb bytes.Buffer
 	go func() {
 		i := 0
+		wcb := true
 		for {
 			b := <-cr
-			// fmt.Println("client read:", string(b))
+			// fmt.Println("client read:", len(b), "\n====================\n", string(b), "\n====================")
+			if wcb {
+				cb.Write(b)
+			}
+			if strings.Contains(string(b), "\r\n\r\n") {
+				wcb = false
+			}
 			sw <- b
 			if b == nil {
 				break
@@ -95,11 +110,79 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 
 	// server read to client write
 	i := 0
+	t := 0
+	var cbr *bytes.Reader = nil
+	http := true
+	var sb strings.Builder
+	wsb := true
+	write_buff := false
+	write_head := false
 	for {
 		b := <-sr
-		cw <- b
 		if b == nil {
 			break
+		}
+		// fmt.Println("server read:", len(b), "\n====================\n", string(b), b, "\n====================")
+		if wsb {
+			sb.Write(b)
+		}
+		if strings.Contains(sb.String(), "\r\n\r\n") {
+			wsb = false
+		}
+		if i == 0 && strings.HasPrefix(string(b), "CONNECT") {
+			http = false
+		}
+		if !write_head && http && !wsb {
+			if strings.HasPrefix(sb.String(), "HTTP/1.1 503 Service Unavailable") && strings.Contains(sb.String(), "Proxy-Connection: close") {
+				fmt.Println(time.Now(), clientConn.RemoteAddr(), "=====http_error=====")
+				if t == f.t {
+					fmt.Println("try times:", t, "reach max try times")
+					return
+				}
+
+				serverConn.Close()
+				serverConn, err = net.Dial("tcp", remoteAddr)
+				if err != nil {
+					fmt.Printf("连接到远程服务器失败: %v\n", err)
+					return
+				}
+				if cbr == nil {
+					cbr = bytes.NewReader(cb.Bytes())
+				}
+				serverDown <- nil
+				serverDown = make(chan interface{}, 5)
+				sr = make(chan []byte, 5)
+				sw = make(chan []byte)
+				go serverRead(serverConn, sr, down, serverDown)
+				go serverWrite(serverConn, sw, down, serverDown)
+
+				buff, err := io.ReadAll(cbr)
+				if err != nil {
+					fmt.Println("read error:", err)
+					return
+				}
+				cbr.Seek(0, io.SeekStart)
+				sw <- buff
+				write_buff = true
+
+				i = 0
+				t++
+				sb.Reset()
+				wsb = true
+				write_head = false
+				continue
+			}
+		} else { // https
+		}
+		if write_buff {
+			write_buff = false
+		} else {
+			if !write_head && !wsb {
+				cw <- []byte(sb.String())
+				write_head = true
+			} else {
+				cw <- b
+			}
 		}
 		if i < 10 {
 			i++
