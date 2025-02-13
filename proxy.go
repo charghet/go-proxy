@@ -15,7 +15,7 @@ import (
 var version = "0.3.0"
 
 func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
-	defer fmt.Println("handleConnection end")
+	// defer fmt.Println("handleConnection end")
 	defer func() {
 		if r := recover(); r != nil {
 			debug.PrintStack()
@@ -49,7 +49,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 			n, err := clientConn.Read(b)
 			// fmt.Println("client read", string(b), "====================")
 			if err != nil {
-				fmt.Printf("client read error: %v\n", err)
+				// fmt.Printf("client read error: %v\n", err)
 				return
 			}
 			cr <- b[:n]
@@ -59,12 +59,19 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	// client write
 	go func() {
 		defer func() {
-			fmt.Println("client write end")
+			// fmt.Println("client write end")
 		}()
 		for {
 			select {
 			case b := <-cw:
-				// fmt.Println("client write", string(b))
+				// if len(b) > 100 {
+				// 	fmt.Println("client write", string(b[:100]))
+				// } else {
+				// 	fmt.Println("client write", b == nil, string(b))
+				// }
+				if b == nil {
+					continue
+				}
 				_, err := clientConn.Write(b)
 				if err != nil {
 					fmt.Printf("client write error: %v\n", err)
@@ -79,18 +86,27 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 
 	sr := make(chan []byte, 5)
 	sw := make(chan []byte)
-	serverDown := make(chan interface{}, 5)
+	serverDown := make(chan interface{})
 
 	go serverRead(serverConn, sr, down, serverDown)
 	go serverWrite(serverConn, sw, down, serverDown)
 
 	// client read to server write
 	var cb bytes.Buffer
+	var tls []byte
 	go func() {
+		// defer fmt.Println("client read to server write end")
 		i := 0
 		wcb := true
+		tls_index := -1
 		for {
-			b := <-cr
+			var b []byte
+			select {
+			case b = <-cr:
+			case <-down:
+				down <- nil
+				return
+			}
 			// fmt.Println("client read:", len(b), "\n====================\n", string(b), "\n====================")
 			if wcb {
 				cb.Write(b)
@@ -98,10 +114,14 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 			if strings.Contains(string(b), "\r\n\r\n") {
 				wcb = false
 			}
-			sw <- b
-			if b == nil {
-				break
+
+			if tls_index == i && tls == nil {
+				tls = b
 			}
+			if tls == nil && !wcb && tls_index == -1 {
+				tls_index = i + 1
+			}
+			sw <- b
 			if i < 10 {
 				i++
 			}
@@ -109,6 +129,8 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	}()
 
 	// server read to client write
+	src := make(chan chan []byte, 5)
+	src <- sr
 	i := 0
 	t := 0
 	var cbr *bytes.Reader = nil
@@ -117,22 +139,29 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	wsb := true
 	write_buff := false
 	write_head := false
+	tls_index := -1
+	tls_error := false
+	reset := false
+	isr := <-src
 	for {
-		b := <-sr
-		if b == nil {
-			break
+		if reset {
+			isr = <-src
+			reset = false
 		}
-		// fmt.Println("server read:", len(b), "\n====================\n", string(b), b, "\n====================")
+		b := <-isr
+		// fmt.Println("server read:", len(b), b == nil, "\n====================\n", s, "\n====================")
 		if wsb {
 			sb.Write(b)
+			if strings.Contains(sb.String(), "\r\n\r\n") {
+				wsb = false
+				tls_index = i + 1
+			}
 		}
-		if strings.Contains(sb.String(), "\r\n\r\n") {
-			wsb = false
-		}
-		if i == 0 && strings.HasPrefix(string(b), "CONNECT") {
+		if strings.HasPrefix(string(b), "HTTP/1.1 200 Connection established") {
 			http = false
 		}
 		if !write_head && http && !wsb {
+			fmt.Println("111111111")
 			if strings.HasPrefix(sb.String(), "HTTP/1.1 503 Service Unavailable") && strings.Contains(sb.String(), "Proxy-Connection: close") {
 				fmt.Println(time.Now(), clientConn.RemoteAddr(), "=====http_error=====")
 				if t == f.t {
@@ -150,10 +179,11 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 					cbr = bytes.NewReader(cb.Bytes())
 				}
 				serverDown <- nil
-				serverDown = make(chan interface{}, 5)
-				sr = make(chan []byte, 5)
-				sw = make(chan []byte)
-				go serverRead(serverConn, sr, down, serverDown)
+				serverDown <- nil
+				serverDown = make(chan interface{})
+				nsr := make(chan []byte, 5)
+				src <- nsr
+				go serverRead(serverConn, nsr, down, serverDown)
 				go serverWrite(serverConn, sw, down, serverDown)
 
 				buff, err := io.ReadAll(cbr)
@@ -170,20 +200,73 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 				sb.Reset()
 				wsb = true
 				write_head = false
+				reset = true
 				continue
 			}
 		} else { // https
+			if tls_index == i && b == nil {
+				fmt.Println(time.Now(), clientConn.RemoteAddr(), "=====tls_error=====")
+				fmt.Println("try times:", t)
+				tls_error = true
+				if t == f.t {
+					fmt.Println("try times:", t, "reach max try times")
+					return
+				}
+
+				serverConn.Close()
+				serverConn, err = net.Dial("tcp", remoteAddr)
+				if err != nil {
+					fmt.Printf("连接到远程服务器失败: %v\n", err) // TODO 重试
+					return
+				}
+
+				if cbr == nil {
+					cbr = bytes.NewReader(cb.Bytes())
+				}
+				serverDown <- nil
+				// serverDown <- nil
+				serverDown = make(chan interface{})
+				nsr := make(chan []byte, 5)
+				src <- nsr
+				go serverRead(serverConn, nsr, down, serverDown)
+				go serverWrite(serverConn, sw, down, serverDown)
+
+				buff, err := io.ReadAll(cbr)
+				if err != nil {
+					fmt.Println("read error:", err)
+					return
+				}
+				cbr.Seek(0, io.SeekStart)
+				sw <- buff
+				sw <- tls
+				// fmt.Println("buff:", string(buff))
+				// fmt.Println("tls:", tls == nil, string(tls))
+				write_buff = true
+
+				i = 0
+				t++
+				sb.Reset()
+				wsb = true
+				write_head = false
+				tls_index = -1
+				reset = true
+				fmt.Println("reset end")
+				continue
+			}
 		}
 		if write_buff {
 			write_buff = false
 		} else {
-			if !write_head && !wsb {
+			if !write_head && !wsb && !tls_error {
 				cw <- []byte(sb.String())
 				write_head = true
 			} else {
 				cw <- b
 			}
 		}
+		// if b == nil {
+		// 	break
+		// }
 		if i < 10 {
 			i++
 		}
@@ -193,38 +276,46 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 
 func serverRead(serverConn net.Conn, sr chan []byte, down chan interface{}, serverDown chan interface{}) {
 	defer func() {
-		sr <- nil
-		fmt.Println("server read end")
+		// sr <- nil
+		// fmt.Println("server read end")
 	}()
+	i := 0
 	for {
 		b := make([]byte, 4096)
-		// serverConn.SetReadDeadline(time.Now().Add(time.Duration(t) * time.Second))
+		t := 60
+		if i < 2 {
+			t = 1
+		}
+		serverConn.SetReadDeadline(time.Now().Add(time.Duration(t) * time.Second))
+		// fmt.Println("server read start", &b[0])
 		n, err := serverConn.Read(b)
 		if err != nil {
-			fmt.Println("server read error:", serverConn.LocalAddr(), err)
+			// fmt.Println("server read error:", serverConn.LocalAddr(), err)
+			sr <- nil
+			// fmt.Println("server read sr end")
 			return
 		}
+		// fmt.Println("server read down:", &b[0], n)
 		select {
 		case sr <- b[:n]:
 		case <-down:
 			down <- nil
 			return
 		case <-serverDown:
-			serverDown <- nil
 			return
 		}
+		i++
 	}
 }
 
 func serverWrite(serverConn net.Conn, sw <-chan []byte, down chan interface{}, serverDown chan interface{}) {
 	defer func() {
 		serverConn.Close()
-		fmt.Println("server write end")
+		// fmt.Println("server write end")
 	}()
 	for {
 		select {
 		case b := <-sw:
-			// fmt.Println("server write:", string(b))
 			_, err := serverConn.Write(b)
 			if err != nil {
 				fmt.Printf("server write error: %v %v\n", serverConn.LocalAddr(), err)
@@ -234,7 +325,6 @@ func serverWrite(serverConn net.Conn, sw <-chan []byte, down chan interface{}, s
 			down <- nil
 			return
 		case <-serverDown:
-			serverDown <- nil
 			return
 		}
 	}
