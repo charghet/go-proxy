@@ -35,7 +35,9 @@ func serverRead(sc chan net.Conn, sr chan []byte) {
 			continue
 		}
 		sr <- b[:n]
-		i++
+		if i < 10 {
+			i++
+		}
 	}
 }
 
@@ -56,7 +58,7 @@ func serverWrite(serverConn net.Conn, sw chan []byte) {
 	}
 }
 
-func handleConnection(clientConn net.Conn, remoteAddr string) {
+func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	// fmt.Printf("%v\n", clientConn.RemoteAddr())
 	defer clientConn.Close()
 
@@ -126,17 +128,25 @@ func handleConnection(clientConn net.Conn, remoteAddr string) {
 			if b == nil {
 				break
 			}
-			i++
+			if i < 10 {
+				i++
+			}
 		}
 	}()
 
 	write_buff := false
 	i := 0
+	t := 0
 	for {
 		b := <-sr
 		// fmt.Println("server read:", string(b))
 		if i == 1 && b != nil && len(b) == 0 { // TODO i == 0 情况
 			fmt.Println(time.Now(), clientConn.RemoteAddr(), "=====tlserror=====")
+			if t == f.t {
+				fmt.Println("try times:", t, "reach max try times")
+				return
+			}
+
 			sw <- nil
 			serverConn.Close()
 			serverConn, err = net.Dial("tcp", remoteAddr)
@@ -151,6 +161,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string) {
 			sw <- buff[1]
 			write_buff = true
 			i = 0
+			t++
 			continue
 		}
 		if write_buff {
@@ -163,7 +174,9 @@ func handleConnection(clientConn net.Conn, remoteAddr string) {
 		if b == nil {
 			break
 		}
-		i++
+		if i < 10 {
+			i++
+		}
 	}
 
 }
@@ -173,6 +186,7 @@ type Flag struct {
 	ph string // proxy host. like localhost:20170
 	v  bool   // version
 	h  bool   // help
+	t  int    // try times
 }
 
 func getArgs() *Flag {
@@ -181,7 +195,7 @@ func getArgs() *Flag {
 	flag.StringVar(&f.ph, "ph", "localhost:20171", "proxy host.")
 	flag.BoolVar(&f.v, "v", false, "print version.")
 	flag.BoolVar(&f.h, "h", false, "show help.")
-
+	flag.IntVar(&f.t, "t", 10, "try times.")
 	flag.Usage = func() {
 		fmt.Println("forword http proxy server and retry request to improved stability")
 		fmt.Fprintf(os.Stdout, "Usage:  %s [options] [path]\n", os.Args[0])
@@ -226,6 +240,6 @@ func main() {
 			continue
 		}
 
-		go handleConnection(clientConn, remoteAddr)
+		go handleConnection(clientConn, remoteAddr, f)
 	}
 }
