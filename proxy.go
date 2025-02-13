@@ -98,7 +98,9 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	for {
 		b := <-sr
 		cw <- b
-
+		if b == nil {
+			break
+		}
 		if i < 10 {
 			i++
 		}
@@ -108,6 +110,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 
 func serverRead(serverConn net.Conn, sr chan []byte, down chan interface{}, serverDown chan interface{}) {
 	defer func() {
+		sr <- nil
 		fmt.Println("server read end")
 	}()
 	for {
