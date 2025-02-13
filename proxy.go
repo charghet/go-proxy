@@ -6,130 +6,83 @@ import (
 	"net"
 	"os"
 	"runtime/debug"
-	"time"
 )
 
-var version = "0.2.0"
-
-func serverRead(sc chan net.Conn, sr chan []byte) {
-	serverConn := <-sc
-	i := 0
-	for {
-		b := make([]byte, 4096)
-		// fmt.Println("server read:", string(b))
-		t := 60
-		if i < 2 {
-			t = 1
-		}
-		serverConn.SetReadDeadline(time.Now().Add(time.Duration(t) * time.Second))
-		n, err := serverConn.Read(b)
-		// fmt.Println("server read end:", serverConn.LocalAddr(), string(b), "========================")
-		if err != nil {
-			// fmt.Println("server read error:", serverConn.LocalAddr(), err)
-			if i == 1 {
-				sr <- make([]byte, 0)
-			} else {
-				sr <- nil
-			}
-			i = 0
-			serverConn = <-sc
-			continue
-		}
-		sr <- b[:n]
-		if i < 10 {
-			i++
-		}
-	}
-}
-
-func serverWrite(serverConn net.Conn, sw chan []byte) {
-	for {
-		b := <-sw
-		if b == nil {
-			// fmt.Println("server write return", serverConn.LocalAddr())
-			return
-		}
-		// fmt.Println("server write:", string(b))
-		_, err := serverConn.Write(b)
-		// fmt.Println("server write end:", serverConn.LocalAddr(), string(b), "============")
-		if err != nil {
-			fmt.Printf("server write error: %v %v\n", serverConn.LocalAddr(), err)
-			return
-		}
-	}
-}
+var version = "0.3.0"
 
 func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
+	defer fmt.Println("handleConnection end")
 	defer func() {
 		if r := recover(); r != nil {
 			debug.PrintStack()
 		}
 	}()
-	// fmt.Printf("%v\n", clientConn.RemoteAddr())
+
 	defer clientConn.Close()
 
-	// 连接远程服务器
 	serverConn, err := net.Dial("tcp", remoteAddr)
 	if err != nil {
 		fmt.Printf("连接到远程服务器失败: %v\n", err)
 		return
 	}
 
+	down := make(chan interface{}, 5)
 	cr := make(chan []byte, 5)
 	cw := make(chan []byte, 5)
+
+	// client read
 	go func() {
+		defer func() {
+			down <- nil
+			cr <- nil
+			fmt.Println("client read end")
+		}()
 		for {
 			b := make([]byte, 4096)
 			n, err := clientConn.Read(b)
 			// fmt.Println("client read", string(b), "====================")
-			// fmt.Println("sleep===========")
-			// time.Sleep(5 * time.Second)
 			if err != nil {
-				// fmt.Printf("client read error: %v\n", err)
-				cr <- nil
+				fmt.Printf("client read error: %v\n", err)
 				return
 			}
 			cr <- b[:n]
 		}
 	}()
 
+	// client write
 	go func() {
+		defer func() {
+			fmt.Println("client write end")
+		}()
 		for {
-			b := <-cw
-			if b == nil {
-				return
-			}
-			// fmt.Println("client write", string(b))
-			_, err := clientConn.Write(b)
-			// fmt.Println("client write end", string(b), "======================")
-			if err != nil {
-				// fmt.Printf("client write error: %v\n", err)
+			select {
+			case b := <-cw:
+				// fmt.Println("client write", string(b))
+				_, err := clientConn.Write(b)
+				if err != nil {
+					fmt.Printf("client write error: %v\n", err)
+					return
+				}
+			case <-down:
+				down <- nil
 				return
 			}
 		}
 	}()
 
-	sc := make(chan net.Conn, 5)
 	sr := make(chan []byte, 5)
 	sw := make(chan []byte)
+	serverDown := make(chan interface{}, 5)
 
-	go serverWrite(serverConn, sw)
-	go serverRead(sc, sr)
+	go serverRead(serverConn, sr, down, serverDown)
+	go serverWrite(serverConn, sw, down, serverDown)
 
-	sc <- serverConn
-	var buff = make([][]byte, 2)
+	// client read to server write
 	go func() {
 		i := 0
 		for {
 			b := <-cr
 			// fmt.Println("client read:", string(b))
-			if i < 2 {
-				buff[i] = b
-				if i == 0 {
-					fmt.Println(time.Now(), clientConn.RemoteAddr(), ":\n", string(b), "\n=========================================")
-				}
-				// fmt.Println("buff:", string(buff), "\n===============")
-			}
 			sw <- b
 			if b == nil {
 				break
@@ -140,51 +93,65 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 		}
 	}()
 
-	write_buff := false
+	// server read to client write
 	i := 0
-	t := 0
 	for {
 		b := <-sr
-		// fmt.Println("server read:", string(b))
-		if i == 1 && b != nil && len(b) == 0 { // TODO i == 0 情况
-			fmt.Println(time.Now(), clientConn.RemoteAddr(), "=====tlserror=====")
-			if t == f.t {
-				fmt.Println("try times:", t, "reach max try times")
-				return
-			}
+		cw <- b
 
-			sw <- nil
-			serverConn.Close()
-			serverConn, err = net.Dial("tcp", remoteAddr)
-			if err != nil {
-				fmt.Printf("连接到远程服务器失败: %v\n", err)
-				return
-			}
-			// time.Sleep(3 * time.Second)
-			sc <- serverConn
-			go serverWrite(serverConn, sw)
-			sw <- buff[0]
-			sw <- buff[1]
-			write_buff = true
-			i = 0
-			t++
-			continue
-		}
-		if write_buff {
-			write_buff = false
-		} else {
-			// fmt.Println(string(first_sr))
-			// cw <- b
-			cw <- b
-		}
-		if b == nil {
-			break
-		}
 		if i < 10 {
 			i++
 		}
 	}
 
+}
+
+func serverRead(serverConn net.Conn, sr chan []byte, down chan interface{}, serverDown chan interface{}) {
+	defer func() {
+		fmt.Println("server read end")
+	}()
+	for {
+		b := make([]byte, 4096)
+		// serverConn.SetReadDeadline(time.Now().Add(time.Duration(t) * time.Second))
+		n, err := serverConn.Read(b)
+		if err != nil {
+			fmt.Println("server read error:", serverConn.LocalAddr(), err)
+			return
+		}
+		select {
+		case sr <- b[:n]:
+		case <-down:
+			down <- nil
+			return
+		case <-serverDown:
+			serverDown <- nil
+			return
+		}
+	}
+}
+
+func serverWrite(serverConn net.Conn, sw <-chan []byte, down chan interface{}, serverDown chan interface{}) {
+	defer func() {
+		serverConn.Close()
+		fmt.Println("server write end")
+	}()
+	for {
+		select {
+		case b := <-sw:
+			// fmt.Println("server write:", string(b))
+			_, err := serverConn.Write(b)
+			if err != nil {
+				fmt.Printf("server write error: %v %v\n", serverConn.LocalAddr(), err)
+				return
+			}
+		case <-down:
+			down <- nil
+			return
+		case <-serverDown:
+			serverDown <- nil
+			return
+		}
+	}
 }
 
 type Flag struct {
