@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"runtime/debug"
 	"time"
 )
 
@@ -59,6 +60,11 @@ func serverWrite(serverConn net.Conn, sw chan []byte) {
 }
 
 func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
+	defer func() {
+		if r := recover(); r != nil {
+			debug.PrintStack()
+		}
+	}()
 	// fmt.Printf("%v\n", clientConn.RemoteAddr())
 	defer clientConn.Close()
 
