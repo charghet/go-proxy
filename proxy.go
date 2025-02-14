@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var version = "0.3.0"
+var version = "0.3.1"
 
 func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	// defer fmt.Println("handleConnection end")
@@ -171,8 +171,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 		if http {
 			if !write_head && !wsb {
 				if strings.HasPrefix(sb.String(), "HTTP/1.1 503 Service Unavailable") && strings.Contains(sb.String(), "Proxy-Connection: close") {
-					fmt.Println(time.Now(), clientConn.RemoteAddr(), "=====http_error=====")
-					fmt.Println("try times:", t)
+					fmt.Println(time.Now(), clientConn.RemoteAddr(), "=====http_error=====", "try times:", t)
 					if t == f.t {
 						fmt.Println("try times:", t, "reach max try times")
 						return
