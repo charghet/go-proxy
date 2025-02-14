@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var version = "0.3.1"
+var version = "0.4.0"
 
 func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	// defer fmt.Println("handleConnection end")
@@ -331,17 +331,17 @@ func serverWrite(serverConn net.Conn, sw <-chan []byte, down chan interface{}, s
 }
 
 type Flag struct {
-	bh string // bind host. like localhost:10170
-	ph string // proxy host. like localhost:20170
-	v  bool   // version
-	h  bool   // help
-	t  int    // try times
+	b string // bind address. like localhost:10170
+	p string // proxy address. like localhost:20170
+	v bool   // version
+	h bool   // help
+	t int    // try times
 }
 
 func getArgs() *Flag {
 	var f Flag
-	flag.StringVar(&f.bh, "bh", "0.0.0.0:10171", "bind host.")
-	flag.StringVar(&f.ph, "ph", "localhost:20171", "proxy host.")
+	flag.StringVar(&f.b, "b", "0.0.0.0:10171", "bind address.")
+	flag.StringVar(&f.p, "p", "localhost:20171", "proxy address.")
 	flag.BoolVar(&f.v, "v", false, "print version.")
 	flag.BoolVar(&f.h, "h", false, "show help.")
 	flag.IntVar(&f.t, "t", 10, "try times.")
@@ -370,8 +370,8 @@ func getArgs() *Flag {
 
 func main() {
 	f := getArgs()
-	localAddr := f.bh
-	remoteAddr := f.ph
+	localAddr := f.b
+	remoteAddr := f.p
 
 	listener, err := net.Listen("tcp", localAddr)
 	if err != nil {

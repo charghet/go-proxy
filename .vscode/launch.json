@@ -11,7 +11,7 @@
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}/proxy.go",
-      "args": ["-bh", "localhost:10171"]
+      "args": ["-b", "localhost:10171"]
     }
   ]
 }
