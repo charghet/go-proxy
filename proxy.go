@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var version = "0.4.0"
+var version = "0.4.1"
 
 func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	// defer fmt.Println("handleConnection end")
@@ -61,6 +61,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 		defer func() {
 			// fmt.Println("client write end")
 		}()
+		i := 0
 		for {
 			select {
 			case b := <-cw:
@@ -72,6 +73,11 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 					fmt.Printf("client write error: %v\n", err)
 					return
 				}
+				if i == 0 {
+					fmt.Println(time.Now(), clientConn.RemoteAddr(), ":\n"+strings.Replace(string(b), "\r\n\r\n", "", 1), "\n=========================================")
+				}
+				i++
+
 			case <-down:
 				down <- nil
 				return
@@ -81,7 +87,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 
 	sr := make(chan []byte, 5)
 	sw := make(chan []byte)
-	serverDown := make(chan interface{})
+	serverDown := make(chan interface{}, 5)
 
 	go serverRead(serverConn, sr, down, serverDown)
 	go serverWrite(serverConn, sw, down, serverDown)
@@ -133,7 +139,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	// server read to client write
 	src := make(chan chan []byte, 5)
 	i := 0
-	t := 0
+	t := 1
 	var cbr *bytes.Reader = nil
 	http := true
 	var sb strings.Builder
@@ -178,16 +184,25 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 					}
 
 					serverConn.Close()
-					serverConn, err = net.Dial("tcp", remoteAddr)
-					if err != nil {
-						fmt.Printf("连接到远程服务器失败: %v\n", err)
-						return
+					for {
+						serverConn, err = net.Dial("tcp", remoteAddr)
+						if err != nil {
+							fmt.Println("连接到远程服务器失败:", err, "try times:", t)
+							t++
+							time.Sleep(time.Millisecond * 300)
+						}
+						if err == nil {
+							break
+						}
+						if t == f.t {
+							fmt.Println("try times:", t, "reach max try times")
+							return
+						}
 					}
 					if cbr == nil {
 						cbr = bytes.NewReader(cb.Bytes())
 					}
-					serverDown <- nil
-					serverDown = make(chan interface{})
+					serverDown = make(chan interface{}, 5)
 					sr := make(chan []byte, 5)
 					src <- sr
 					go serverRead(serverConn, sr, down, serverDown)
@@ -221,17 +236,26 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 				}
 
 				serverConn.Close()
-				serverConn, err = net.Dial("tcp", remoteAddr)
-				if err != nil {
-					fmt.Printf("连接到远程服务器失败: %v\n", err) // TODO 重试
-					return
+				for {
+					serverConn, err = net.Dial("tcp", remoteAddr)
+					if err != nil {
+						fmt.Println("连接到远程服务器失败:", err, "try times:", t)
+						t++
+						time.Sleep(time.Millisecond * 300)
+					}
+					if err == nil {
+						break
+					}
+					if t == f.t {
+						fmt.Println("try times:", t, "reach max try times")
+						return
+					}
 				}
 
 				if cbr == nil {
 					cbr = bytes.NewReader(cb.Bytes())
 				}
-				serverDown <- nil
-				serverDown = make(chan interface{})
+				serverDown = make(chan interface{}, 5)
 				sr = make(chan []byte, 5)
 				src <- sr
 				go serverRead(serverConn, sr, down, serverDown)
@@ -281,6 +305,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 
 func serverRead(serverConn net.Conn, sr chan []byte, down chan interface{}, serverDown chan interface{}) {
 	defer func() {
+		serverDown <- nil
 		// fmt.Println("server read end")
 	}()
 	i := 0
@@ -300,7 +325,6 @@ func serverRead(serverConn net.Conn, sr chan []byte, down chan interface{}, serv
 			down <- nil
 			return
 		case <-serverDown:
-			serverDown <- nil
 			return
 		}
 		i++
@@ -310,6 +334,7 @@ func serverRead(serverConn net.Conn, sr chan []byte, down chan interface{}, serv
 func serverWrite(serverConn net.Conn, sw <-chan []byte, down chan interface{}, serverDown chan interface{}) {
 	defer func() {
 		serverConn.Close()
+		serverDown <- nil
 		// fmt.Println("server write end")
 	}()
 	for {
@@ -324,7 +349,6 @@ func serverWrite(serverConn net.Conn, sw <-chan []byte, down chan interface{}, s
 			down <- nil
 			return
 		case <-serverDown:
-			serverDown <- nil
 			return
 		}
 	}
