@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var version = "0.4.1"
+var version = "0.4.3"
 
 func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	// defer fmt.Println("handleConnection end")
@@ -22,8 +22,6 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 		}
 	}()
 
-	defer clientConn.Close()
-
 	serverConn, err := net.Dial("tcp", remoteAddr)
 	if err != nil {
 		fmt.Printf("连接到远程服务器失败: %v\n", err)
@@ -31,9 +29,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	}
 
 	down := make(chan interface{}, 10)
-	defer func() {
-		down <- nil
-	}()
+
 	cr := make(chan []byte, 5)
 	cw := make(chan []byte, 5)
 
@@ -59,6 +55,7 @@ func handleConnection(clientConn net.Conn, remoteAddr string, f *Flag) {
 	// client write
 	go func() {
 		defer func() {
+			clientConn.Close()
 			// fmt.Println("client write end")
 		}()
 		i := 0

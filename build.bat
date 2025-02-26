@@ -5,4 +5,4 @@ SET CGO_ENABLED=0
 SET GOOS=linux
 SET GOARCH=amd64
 go build -o .\build\go-proxy .\proxy.go
-cp .\build\go-proxy.exe D:/tools/go-proxy.exe
+copy ".\build\go-proxy.exe" "D:\app\tools\go-proxy.exe"
